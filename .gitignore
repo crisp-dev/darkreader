@@ -1,8 +1,6 @@
 # Build files
 #-----------------------------------
 build/
-darkreader.js
-darkreader.mjs
 debug.log
 src/plus
 
