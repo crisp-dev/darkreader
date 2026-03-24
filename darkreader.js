@@ -2127,8 +2127,127 @@
         return null;
     }
 
+    class LRUCache {
+        constructor(maxSize) {
+            this.cache = new Map();
+            this.maxSize = maxSize;
+        }
+        get(key) {
+            const value = this.cache.get(key);
+            if (value !== undefined) {
+                this.cache.delete(key);
+                this.cache.set(key, value);
+            }
+            return value;
+        }
+        has(key) {
+            return this.cache.has(key);
+        }
+        set(key, value) {
+            if (this.cache.has(key)) {
+                this.cache.delete(key);
+            } else if (this.cache.size >= this.maxSize) {
+                const firstKey = this.cache.keys().next().value;
+                this.cache.delete(firstKey);
+            }
+            this.cache.set(key, value);
+        }
+        delete(key) {
+            return this.cache.delete(key);
+        }
+        clear() {
+            this.cache.clear();
+        }
+        get size() {
+            return this.cache.size;
+        }
+        forEach(callback) {
+            this.cache.forEach(callback);
+        }
+    }
+
+    let cacheReferences = {};
+    function registerCache(name, cache) {
+        cacheReferences[name] = cache;
+    }
+    function getCacheStats() {
+        const stats = [];
+        for (const [name, cache] of Object.entries(cacheReferences)) {
+            if (cache instanceof Map) {
+                let nestedSize = 0;
+                let details = "";
+                cache.forEach((value) => {
+                    if (value instanceof Map) {
+                        nestedSize += value.size;
+                    } else if (value instanceof LRUCache) {
+                        nestedSize += value.size;
+                    }
+                });
+                if (nestedSize > 0) {
+                    details = `${cache.size} outer keys, ${nestedSize} total nested entries`;
+                }
+                stats.push({
+                    name,
+                    size: cache.size,
+                    type: "Map",
+                    details: details || undefined
+                });
+            } else if (cache instanceof Set) {
+                stats.push({
+                    name,
+                    size: cache.size,
+                    type: "Set"
+                });
+            } else if (Array.isArray(cache)) {
+                stats.push({
+                    name,
+                    size: cache.length,
+                    type: "Array"
+                });
+            } else if (cache instanceof LRUCache) {
+                stats.push({
+                    name,
+                    size: cache.size,
+                    type: "LRUCache"
+                });
+            }
+        }
+        return stats;
+    }
+    function logCacheStats() {
+        const stats = getCacheStats();
+        const total = stats.reduce((sum, s) => sum + s.size, 0);
+        console.group(
+            "%c[DarkReader] Cache Stats",
+            "color: #ff6b6b; font-weight: bold;"
+        );
+        console.log(`Total cache entries: ${total}`);
+        console.table(
+            stats.map((s) => ({
+                Name: s.name,
+                Size: s.size,
+                Type: s.type,
+                Details: s.details || "-"
+            }))
+        );
+        console.groupEnd();
+    }
+    function initLeakDebug() {
+        if (typeof window !== "undefined") {
+            window.DARKREADER_DUMP = () => {
+                logCacheStats();
+            };
+        }
+    }
+    function stopLeakDebug() {
+        if (typeof window !== "undefined") {
+            delete window.DARKREADER_DUMP;
+        }
+    }
+
     let variablesSheet;
     const registeredColors = new Map();
+    registerCache("registeredColors", registeredColors);
     function registerVariablesSheet(sheet) {
         variablesSheet = sheet;
         const types = ["background", "text", "border"];
@@ -2212,6 +2331,7 @@
         return theme[prop];
     }
     const colorModificationCache = new Map();
+    registerCache("colorModificationCache", colorModificationCache);
     function clearColorModificationCache() {
         colorModificationCache.clear();
     }
@@ -3413,6 +3533,8 @@
     const imageDetailsCache = new Map();
     const awaitingForImageLoading = new Map();
     let didTryLoadCache = false;
+    registerCache("imageDetailsCache", imageDetailsCache);
+    registerCache("awaitingForImageLoading", awaitingForImageLoading);
     function shouldIgnoreImage(selectorText, selectors) {
         if (!selectorText || selectors.length === 0) {
             return false;
@@ -3442,11 +3564,15 @@
         }
         return false;
     }
+    const IMAGE_SELECTOR_CACHE_SIZE = 10000;
     const imageSelectorQueue = new Map();
-    const imageSelectorValues = new Map();
+    const imageSelectorValues = new LRUCache(IMAGE_SELECTOR_CACHE_SIZE);
     const imageSelectorNodeQueue = new Set();
     let imageSelectorQueueFrameId = null;
     let classObserver = null;
+    registerCache("imageSelectorQueue", imageSelectorQueue);
+    registerCache("imageSelectorValues", imageSelectorValues);
+    registerCache("imageSelectorNodeQueue", imageSelectorNodeQueue);
     function checkImageSelectors(node) {
         for (const [selector, callbacks] of imageSelectorQueue) {
             if (
@@ -3853,6 +3979,7 @@
         cleanImageProcessingCache();
         awaitingForImageLoading.clear();
         imageSelectorQueue.clear();
+        imageSelectorValues.clear();
         classObserver?.disconnect();
         classObserver = null;
     }
@@ -5730,7 +5857,13 @@
         svgNodesRoots.set(svgElement, root);
         return root;
     }
+    const MAX_CACHE_ENTRIES = 10000;
+    const MAX_CACHEABLE_VALUE_LENGTH = 2000;
     const inlineStringValueCache = new Map();
+    registerCache("inlineStringValueCache", inlineStringValueCache);
+    function clearInlineStyleCache() {
+        inlineStringValueCache.clear();
+    }
     function overrideInlineStyle(
         element,
         theme,
@@ -5831,10 +5964,17 @@
                 typeof mod.value === "function" ? mod.value(theme) : mod.value;
             if (typeof value === "string") {
                 setStaticValue(value);
-                if (!inlineStringValueCache.has(modifierCSSProp)) {
-                    inlineStringValueCache.set(modifierCSSProp, new Map());
+                if (cssVal.length <= MAX_CACHEABLE_VALUE_LENGTH) {
+                    if (!inlineStringValueCache.has(modifierCSSProp)) {
+                        inlineStringValueCache.set(
+                            modifierCSSProp,
+                            new LRUCache(MAX_CACHE_ENTRIES)
+                        );
+                    }
+                    inlineStringValueCache
+                        .get(modifierCSSProp)
+                        .set(cssVal, value);
                 }
-                inlineStringValueCache.get(modifierCSSProp).set(cssVal, value);
             } else if (value instanceof Promise) {
                 setAsyncValue(value, cssVal);
             } else if (typeof value === "object") {
@@ -6213,15 +6353,15 @@
     }
 
     const STYLE_SELECTOR = 'style, link[rel*="stylesheet" i]:not([disabled])';
-    let ignoredStylesheetURLPatterns = [];
-    function setIgnoredStylesheetURLs(patterns) {
-        ignoredStylesheetURLPatterns = patterns || [];
+    let ignoredCSSURLPatterns = [];
+    function setIgnoredCSSURLs(patterns) {
+        ignoredCSSURLPatterns = patterns || [];
     }
-    function shouldIgnoreStylesheetURL(url) {
-        if (!url || ignoredStylesheetURLPatterns.length === 0) {
+    function shouldIgnoreCSSURL(url) {
+        if (!url || ignoredCSSURLPatterns.length === 0) {
             return false;
         }
-        for (const pattern of ignoredStylesheetURLPatterns) {
+        for (const pattern of ignoredCSSURLPatterns) {
             if (pattern.startsWith("^")) {
                 if (url.startsWith(pattern.slice(1))) {
                     return true;
@@ -6230,10 +6370,8 @@
                 if (url.endsWith(pattern.slice(0, -1))) {
                     return true;
                 }
-            } else {
-                if (url.includes(pattern)) {
-                    return true;
-                }
+            } else if (url.includes(pattern)) {
+                return true;
             }
         }
         return false;
@@ -6271,7 +6409,7 @@
                         ? !element.href.startsWith("moz-extension://")
                         : true) &&
                     !isFontsGoogleApiStyle(element) &&
-                    !shouldIgnoreStylesheetURL(element.href))) &&
+                    !shouldIgnoreCSSURL(element.href))) &&
             !element.classList.contains("darkreader") &&
             !ignoredMedia.includes(element.media.toLowerCase()) &&
             !element.classList.contains("stylus")
@@ -7623,6 +7761,10 @@
     let isIFrame$1 = null;
     let ignoredImageAnalysisSelectors = [];
     let ignoredInlineSelectors = [];
+    registerCache("styleManagers", styleManagers);
+    registerCache("adoptedStyleManagers", adoptedStyleManagers);
+    registerCache("adoptedStyleFallbacks", adoptedStyleFallbacks);
+    registerCache("parsedURLCache", parsedURLCache);
     let staticStyleMap = new WeakMap();
     function createOrUpdateStyle(className, root = document.head || document) {
         let element = root.querySelector(`.${className}`);
@@ -8028,6 +8170,7 @@
     }
     function createThemeAndWatchForUpdates() {
         createStaticStyleOverrides();
+        initLeakDebug();
         if (!documentIsVisible() && !theme.immediateModify) {
             setDocumentVisibilityListener(runDynamicStyle);
         } else {
@@ -8301,15 +8444,13 @@
             ignoredInlineSelectors = Array.isArray(fixes.ignoreInlineStyle)
                 ? fixes.ignoreInlineStyle
                 : [];
-            setIgnoredStylesheetURLs(
-                Array.isArray(fixes.ignoreStylesheetURLs)
-                    ? fixes.ignoreStylesheetURLs
-                    : []
+            setIgnoredCSSURLs(
+                Array.isArray(fixes.ignoreCSSUrl) ? fixes.ignoreCSSUrl : []
             );
         } else {
             ignoredImageAnalysisSelectors = [];
             ignoredInlineSelectors = [];
-            setIgnoredStylesheetURLs([]);
+            setIgnoredCSSURLs([]);
         }
         if (theme.immediateModify) {
             setIsDOMReady(() => {
@@ -8381,6 +8522,7 @@
         document.documentElement.removeAttribute(`data-darkreader-mode`);
         document.documentElement.removeAttribute(`data-darkreader-scheme`);
         cleanDynamicThemeCache();
+        stopLeakDebug();
         removeNode(document.querySelector(".darkreader--fallback"));
         if (document.head) {
             const selectors = [
@@ -8425,6 +8567,7 @@
         cancelRendering();
         stopWatchingForUpdates();
         cleanModificationCache();
+        clearInlineStyleCache();
         clearColorCache();
         releaseVariablesSheet();
         prevTheme = null;
