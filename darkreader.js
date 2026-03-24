@@ -7896,7 +7896,7 @@
             fixes && fixes.disableCustomElementRegistryProxy
         );
         document.dispatchEvent(new CustomEvent("__darkreader__cleanUp"));
-        {
+        if (enableStyleSheetsProxy || enableCustomElementRegistryProxy) {
             const proxyScript = createOrUpdateScript("darkreader--proxy");
             proxyScript.append(
                 `(${injectProxy})(${enableStyleSheetsProxy}, ${enableCustomElementRegistryProxy})`

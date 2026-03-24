@@ -1,3 +1,28 @@
+export function debounce<T extends(...args: any[]) => any>(callback: T, delayMs: number): T & {cancel: () => void} {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let lastArgs: any[];
+
+    const debounced: T = ((...args: any[]) => {
+        lastArgs = args;
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+        timeoutId = setTimeout(() => {
+            timeoutId = null;
+            callback(...lastArgs);
+        }, delayMs);
+    }) as any;
+
+    const cancel = () => {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+    };
+
+    return Object.assign(debounced, {cancel});
+}
+
 export function throttle<T extends(...args: any[]) => any>(callback: T): T & {cancel: () => void} {
     let pending = false;
     let frameId: number | null = null;

@@ -167,7 +167,7 @@ function createStaticStyleOverrides() {
     if (__CHROMIUM_MV3__) {
         // Notify the dedicated injector of the data.
         document.dispatchEvent(new CustomEvent('__darkreader__stylesheetProxy__arg', {detail: {enableStyleSheetsProxy, enableCustomElementRegistryProxy}}));
-    } else {
+    } else if (enableStyleSheetsProxy || enableCustomElementRegistryProxy) {
         const proxyScript = createOrUpdateScript('darkreader--proxy');
         proxyScript.append(`(${injectProxy})(${enableStyleSheetsProxy}, ${enableCustomElementRegistryProxy})`);
         document.head.insertBefore(proxyScript, rootVarsStyle.nextSibling);
