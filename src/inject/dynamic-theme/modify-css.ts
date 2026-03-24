@@ -2,6 +2,7 @@ import type {Theme} from '../../definitions';
 import {parseColorWithCache, rgbToHSL, hslToString, RGBA} from '../../utils/color';
 import type {ParsedGradient} from '../../utils/css-text/parse-gradient';
 import {parseGradient} from '../../utils/css-text/parse-gradient';
+import {LRUCache} from '../../utils/lru-cache';
 import {clamp} from '../../utils/math';
 import {isCSSColorSchemePropSupported, isLayerRuleSupported} from '../../utils/platform';
 import {getMatches} from '../../utils/text';
@@ -12,6 +13,7 @@ import {logWarn, logInfo} from '../utils/log';
 import {cssURLRegex, getCSSURLValue, getCSSBaseBath} from './css-rules';
 import type {ImageDetails} from './image';
 import {getImageDetails, getFilteredImageURL, cleanImageProcessingCache, requestBlobURLCheck, isBlobURLCheckResultReady, tryConvertDataURLToBlobURL} from './image';
+import {registerCache} from './leak-debug';
 import {modifyBackgroundColor, modifyBorderColor, modifyForegroundColor, modifyGradientColor, modifyShadowColor, clearColorModificationCache} from './modify-colors';
 import {getSheetScope} from './style-scope';
 import type {CSSVariableModifier, VariablesStore} from './variables';
@@ -308,6 +310,9 @@ const imageDetailsCache = new Map<string, ImageDetails>();
 const awaitingForImageLoading = new Map<string, Array<(imageDetails: ImageDetails | null) => void>>();
 let didTryLoadCache = false;
 
+registerCache('imageDetailsCache', imageDetailsCache);
+registerCache('awaitingForImageLoading', awaitingForImageLoading);
+
 function shouldIgnoreImage(selectorText: string, selectors: string[]) {
     if (!selectorText || selectors.length === 0) {
         return false;
@@ -344,11 +349,17 @@ interface BgImageMatches {
     hasComma?: boolean;
 }
 
+const IMAGE_SELECTOR_CACHE_SIZE = 10000;
+
 const imageSelectorQueue = new Map<string, Array<() => void>>();
-const imageSelectorValues = new Map<string, string>();
+const imageSelectorValues = new LRUCache<string, string>(IMAGE_SELECTOR_CACHE_SIZE);
 const imageSelectorNodeQueue = new Set<Element>();
 let imageSelectorQueueFrameId: number | null = null;
 let classObserver: MutationObserver | null = null;
+
+registerCache('imageSelectorQueue', imageSelectorQueue);
+registerCache('imageSelectorValues', imageSelectorValues);
+registerCache('imageSelectorNodeQueue', imageSelectorNodeQueue);
 
 export function checkImageSelectors(node: Element | Document | ShadowRoot): void {
     for (const [selector, callbacks] of imageSelectorQueue) {
@@ -713,6 +724,7 @@ export function cleanModificationCache(): void {
     cleanImageProcessingCache();
     awaitingForImageLoading.clear();
     imageSelectorQueue.clear();
+    imageSelectorValues.clear();
     classObserver?.disconnect();
     classObserver = null;
 }

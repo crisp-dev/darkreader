@@ -1,4 +1,5 @@
 import {parseColorWithCache, rgbToHexString, type RGBA} from '../../utils/color';
+import {registerCache} from './leak-debug';
 
 interface RegisteredColor {
     parsed: RGBA;
@@ -27,6 +28,7 @@ interface ColorPalette {
 let variablesSheet: CSSStyleSheet | null;
 
 const registeredColors = new Map<string, RegisteredColor>();
+registerCache('registeredColors', registeredColors);
 
 export function registerVariablesSheet(sheet: CSSStyleSheet): void {
     variablesSheet = sheet;
