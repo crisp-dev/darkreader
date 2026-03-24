@@ -1,5 +1,6 @@
 import type {Theme} from '../../definitions';
 import {forEach, push} from '../../utils/array';
+import {LRUCache} from '../../utils/lru-cache';
 import {isShadowDomSupported} from '../../utils/platform';
 import {throttle} from '../../utils/throttle';
 import {getDuration} from '../../utils/time';
@@ -8,6 +9,7 @@ import {iterateShadowHosts, createOptimizedTreeObserver, isReadyStateComplete, a
 
 import {iterateCSSDeclarations} from './css-rules';
 import {getImageDetails} from './image';
+import {registerCache} from './leak-debug';
 import {getModifiableCSSDeclaration} from './modify-css';
 import type {CSSVariableModifier, ModifiedVarDeclaration} from './variables';
 import {variablesStore} from './variables';
@@ -337,7 +339,15 @@ function getSVGElementRoot(svgElement: SVGElement): SVGSVGElement | null {
     return root;
 }
 
-const inlineStringValueCache = new Map<string, Map<string, string>>();
+const MAX_CACHE_ENTRIES = 10000;
+const MAX_CACHEABLE_VALUE_LENGTH = 2000;
+
+const inlineStringValueCache = new Map<string, LRUCache<string, string>>();
+registerCache('inlineStringValueCache', inlineStringValueCache);
+
+export function clearInlineStyleCache(): void {
+    inlineStringValueCache.clear();
+}
 
 export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreInlineSelectors: string[], ignoreImageSelectors: string[]): void {
     if (elementsLastChanges.has(element)) {
@@ -428,10 +438,13 @@ export function overrideInlineStyle(element: HTMLElement, theme: Theme, ignoreIn
         const value = typeof mod.value === 'function' ? mod.value(theme) : mod.value;
         if (typeof value === 'string') {
             setStaticValue(value);
-            if (!inlineStringValueCache.has(modifierCSSProp)) {
-                inlineStringValueCache.set(modifierCSSProp, new Map());
+            // Skip caching large values (base64 images)
+            if (cssVal.length <= MAX_CACHEABLE_VALUE_LENGTH) {
+                if (!inlineStringValueCache.has(modifierCSSProp)) {
+                    inlineStringValueCache.set(modifierCSSProp, new LRUCache(MAX_CACHE_ENTRIES));
+                }
+                inlineStringValueCache.get(modifierCSSProp)!.set(cssVal, value);
             }
-            inlineStringValueCache.get(modifierCSSProp)!.set(cssVal, value);
         } else if (value instanceof Promise) {
             setAsyncValue(value, cssVal);
         } else if (typeof value === 'object') {

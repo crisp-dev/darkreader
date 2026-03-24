@@ -5,6 +5,7 @@ import {getRegisteredColor, registerColor} from '../../inject/dynamic-theme/pale
 import type {RGBA, HSLA} from '../../utils/color';
 import {parseToHSLWithCache, rgbToHSL, hslToRGB, rgbToString, rgbToHexString} from '../../utils/color';
 import {scale} from '../../utils/math';
+import {registerCache} from './leak-debug';
 
 interface ColorFunction {
     (hsl: HSLA): HSLA;
@@ -25,6 +26,7 @@ function getFgPole(theme: Theme) {
 }
 
 const colorModificationCache = new Map<ColorFunction, Map<string, string>>();
+registerCache('colorModificationCache', colorModificationCache);
 
 export function clearColorModificationCache(): void {
     colorModificationCache.clear();

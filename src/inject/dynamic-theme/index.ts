@@ -16,13 +16,14 @@ import type {AdoptedStyleSheetManager, AdoptedStyleSheetFallback} from './adopte
 import {createAdoptedStyleSheetOverride, createAdoptedStyleSheetFallback, canHaveAdoptedStyleSheets} from './adopted-style-manger';
 import {combineFixes, findRelevantFix} from './fixes';
 import {getStyleInjectionMode, injectStyleAway, removeStyleContainer} from './injection';
-import {overrideInlineStyle, getInlineOverrideStyle, watchForInlineStyles, stopWatchingForInlineStyles, INLINE_STYLE_SELECTOR} from './inline-style';
+import {overrideInlineStyle, getInlineOverrideStyle, watchForInlineStyles, stopWatchingForInlineStyles, clearInlineStyleCache, INLINE_STYLE_SELECTOR} from './inline-style';
+import {initLeakDebug, registerCache, stopLeakDebug} from './leak-debug';
 import {changeMetaThemeColorWhenAvailable, restoreMetaThemeColor} from './meta-theme-color';
 import {modifyBackgroundColor, modifyBorderColor, modifyForegroundColor} from './modify-colors';
 import {getModifiedUserAgentStyle, getModifiedFallbackStyle, cleanModificationCache, getSelectionColor} from './modify-css';
 import {clearColorPalette, getColorPalette, registerVariablesSheet, releaseVariablesSheet} from './palette';
 import type {StyleElement, StyleManager} from './style-manager';
-import {manageStyle, getManageableStyles, cleanLoadingLinks, setIgnoredStylesheetURLs} from './style-manager';
+import {manageStyle, getManageableStyles, cleanLoadingLinks, setIgnoredCSSURLs} from './style-manager';
 import {injectProxy} from './stylesheet-proxy';
 import {variablesStore} from './variables';
 import {watchForStyleChanges, stopWatchingForStyleChanges} from './watch';
@@ -41,6 +42,12 @@ let fixes: DynamicThemeFix | null = null;
 let isIFrame: boolean | null = null;
 let ignoredImageAnalysisSelectors: string[] = [];
 let ignoredInlineSelectors: string[] = [];
+
+// Register caches for leak debugging
+registerCache('styleManagers', styleManagers);
+registerCache('adoptedStyleManagers', adoptedStyleManagers);
+registerCache('adoptedStyleFallbacks', adoptedStyleFallbacks);
+registerCache('parsedURLCache', parsedURLCache);
 
 let staticStyleMap = new WeakMap<ParentNode, Map<string, HTMLStyleElement>>();
 
@@ -418,6 +425,9 @@ function runDynamicStyle() {
 function createThemeAndWatchForUpdates() {
     createStaticStyleOverrides();
 
+    // Start leak debug monitoring when dark mode is enabled
+    initLeakDebug();
+
     if (!documentIsVisible() && !theme!.immediateModify) {
         setDocumentVisibilityListener(runDynamicStyle);
     } else {
@@ -690,11 +700,11 @@ export function createOrUpdateDynamicThemeInternal(themeConfig: Theme, dynamicTh
     if (fixes) {
         ignoredImageAnalysisSelectors = Array.isArray(fixes.ignoreImageAnalysis) ? fixes.ignoreImageAnalysis : [];
         ignoredInlineSelectors = Array.isArray(fixes.ignoreInlineStyle) ? fixes.ignoreInlineStyle : [];
-        setIgnoredStylesheetURLs(Array.isArray(fixes.ignoreStylesheetURLs) ? fixes.ignoreStylesheetURLs : []);
+        setIgnoredCSSURLs(Array.isArray(fixes.ignoreCSSUrl) ? fixes.ignoreCSSUrl : []);
     } else {
         ignoredImageAnalysisSelectors = [];
         ignoredInlineSelectors = [];
-        setIgnoredStylesheetURLs([]);
+        setIgnoredCSSURLs([]);
     }
 
     if (theme.immediateModify) {
@@ -767,6 +777,7 @@ export function removeDynamicTheme(): void {
     document.documentElement.removeAttribute(`data-darkreader-mode`);
     document.documentElement.removeAttribute(`data-darkreader-scheme`);
     cleanDynamicThemeCache();
+    stopLeakDebug();
     removeNode(document.querySelector('.darkreader--fallback'));
     if (document.head) {
         const selectors = [
@@ -814,6 +825,7 @@ export function cleanDynamicThemeCache(): void {
     cancelRendering();
     stopWatchingForUpdates();
     cleanModificationCache();
+    clearInlineStyleCache();
     clearColorCache();
     releaseVariablesSheet();
     prevTheme = null;
