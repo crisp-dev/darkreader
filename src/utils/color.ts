@@ -1,4 +1,5 @@
 import {evalMath} from './math-eval';
+import {LRUCache} from './lru-cache';
 import {isSystemDarkModeEnabled} from './media-query';
 import {getParenthesesRange} from './text';
 
@@ -16,8 +17,9 @@ export interface HSLA {
     a?: number;
 }
 
-const hslaParseCache = new Map<string, HSLA>();
-const rgbaParseCache = new Map<string, RGBA>();
+const COLOR_CACHE_SIZE = 2000;
+const hslaParseCache = new LRUCache<string, HSLA>(COLOR_CACHE_SIZE);
+const rgbaParseCache = new LRUCache<string, RGBA>(COLOR_CACHE_SIZE);
 
 export function parseColorWithCache($color: string): RGBA | null {
     $color = $color.trim();

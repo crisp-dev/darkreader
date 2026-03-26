@@ -351,10 +351,12 @@ interface BgImageMatches {
 }
 
 const IMAGE_SELECTOR_CACHE_SIZE = 10000;
+const IMAGE_SELECTOR_TIMEOUT_MS = 5000;
 
 const imageSelectorQueue = new Map<string, Array<() => void>>();
 const imageSelectorValues = new LRUCache<string, string>(IMAGE_SELECTOR_CACHE_SIZE);
 const imageSelectorNodeQueue = new Set<Element>();
+const imageSelectorTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 let imageSelectorQueueFrameId: number | null = null;
 let classObserver: MutationObserver | null = null;
 
@@ -366,6 +368,11 @@ export function checkImageSelectors(node: Element | Document | ShadowRoot): void
     for (const [selector, callbacks] of imageSelectorQueue) {
         if (node.querySelector(selector) || (node instanceof Element && node.matches(selector))) {
             imageSelectorQueue.delete(selector);
+            const timeout = imageSelectorTimeouts.get(selector);
+            if (timeout) {
+                clearTimeout(timeout);
+                imageSelectorTimeouts.delete(selector);
+            }
             callbacks.forEach((cb) => cb());
         }
     }
@@ -492,6 +499,16 @@ export function getBgImageModifier(
                             } else {
                                 imageSelectorQueue.set(selector, [resolve]);
                                 imageSelectorValues.set(selector, urlValue);
+                                // Set a timeout to resolve even if selector never appears
+                                const timeoutId = setTimeout(() => {
+                                    const callbacks = imageSelectorQueue.get(selector);
+                                    if (callbacks) {
+                                        imageSelectorQueue.delete(selector);
+                                        imageSelectorTimeouts.delete(selector);
+                                        callbacks.forEach((cb) => cb());
+                                    }
+                                }, IMAGE_SELECTOR_TIMEOUT_MS);
+                                imageSelectorTimeouts.set(selector, timeoutId);
                             }
                         });
                     }
@@ -726,6 +743,15 @@ export function cleanModificationCache(): void {
     awaitingForImageLoading.clear();
     imageSelectorQueue.clear();
     imageSelectorValues.clear();
+    imageSelectorNodeQueue.clear();
+    // Clear all pending timeouts
+    imageSelectorTimeouts.forEach((timeout) => clearTimeout(timeout));
+    imageSelectorTimeouts.clear();
+    // Cancel any pending rAF
+    if (imageSelectorQueueFrameId !== null) {
+        cancelAnimationFrame(imageSelectorQueueFrameId);
+        imageSelectorQueueFrameId = null;
+    }
     classObserver?.disconnect();
     classObserver = null;
 }

@@ -498,8 +498,48 @@
         return parts;
     }
 
+    class LRUCache {
+        constructor(maxSize) {
+            this.cache = new Map();
+            this.maxSize = maxSize;
+        }
+        get(key) {
+            const value = this.cache.get(key);
+            if (value !== undefined) {
+                this.cache.delete(key);
+                this.cache.set(key, value);
+            }
+            return value;
+        }
+        has(key) {
+            return this.cache.has(key);
+        }
+        set(key, value) {
+            if (this.cache.has(key)) {
+                this.cache.delete(key);
+            } else if (this.cache.size >= this.maxSize) {
+                const firstKey = this.cache.keys().next().value;
+                this.cache.delete(firstKey);
+            }
+            this.cache.set(key, value);
+        }
+        delete(key) {
+            return this.cache.delete(key);
+        }
+        clear() {
+            this.cache.clear();
+        }
+        get size() {
+            return this.cache.size;
+        }
+        forEach(callback) {
+            this.cache.forEach(callback);
+        }
+    }
+
     let anchor;
-    const parsedURLCache = new Map();
+    const URL_PARSE_CACHE_SIZE = 500;
+    const parsedURLCache = new LRUCache(URL_PARSE_CACHE_SIZE);
     function fixBaseURL($url) {
         if (!anchor) {
             anchor = document.createElement("a");
@@ -853,8 +893,9 @@
     const isSystemDarkModeEnabled = () =>
         matchMedia("(prefers-color-scheme: dark)").matches;
 
-    const hslaParseCache = new Map();
-    const rgbaParseCache = new Map();
+    const COLOR_CACHE_SIZE = 2000;
+    const hslaParseCache = new LRUCache(COLOR_CACHE_SIZE);
+    const rgbaParseCache = new LRUCache(COLOR_CACHE_SIZE);
     function parseColorWithCache($color) {
         $color = $color.trim();
         if (rgbaParseCache.has($color)) {
@@ -2125,45 +2166,6 @@
             node = node.parentNode;
         }
         return null;
-    }
-
-    class LRUCache {
-        constructor(maxSize) {
-            this.cache = new Map();
-            this.maxSize = maxSize;
-        }
-        get(key) {
-            const value = this.cache.get(key);
-            if (value !== undefined) {
-                this.cache.delete(key);
-                this.cache.set(key, value);
-            }
-            return value;
-        }
-        has(key) {
-            return this.cache.has(key);
-        }
-        set(key, value) {
-            if (this.cache.has(key)) {
-                this.cache.delete(key);
-            } else if (this.cache.size >= this.maxSize) {
-                const firstKey = this.cache.keys().next().value;
-                this.cache.delete(firstKey);
-            }
-            this.cache.set(key, value);
-        }
-        delete(key) {
-            return this.cache.delete(key);
-        }
-        clear() {
-            this.cache.clear();
-        }
-        get size() {
-            return this.cache.size;
-        }
-        forEach(callback) {
-            this.cache.forEach(callback);
-        }
     }
 
     let cacheReferences = {};
@@ -3569,9 +3571,11 @@
         return false;
     }
     const IMAGE_SELECTOR_CACHE_SIZE = 10000;
+    const IMAGE_SELECTOR_TIMEOUT_MS = 5000;
     const imageSelectorQueue = new Map();
     const imageSelectorValues = new LRUCache(IMAGE_SELECTOR_CACHE_SIZE);
     const imageSelectorNodeQueue = new Set();
+    const imageSelectorTimeouts = new Map();
     let imageSelectorQueueFrameId = null;
     let classObserver = null;
     registerCache("imageSelectorQueue", imageSelectorQueue);
@@ -3584,6 +3588,11 @@
                 (node instanceof Element && node.matches(selector))
             ) {
                 imageSelectorQueue.delete(selector);
+                const timeout = imageSelectorTimeouts.get(selector);
+                if (timeout) {
+                    clearTimeout(timeout);
+                    imageSelectorTimeouts.delete(selector);
+                }
                 callbacks.forEach((cb) => cb());
             }
         }
@@ -3714,6 +3723,21 @@
                                 } else {
                                     imageSelectorQueue.set(selector, [resolve]);
                                     imageSelectorValues.set(selector, urlValue);
+                                    const timeoutId = setTimeout(() => {
+                                        const callbacks =
+                                            imageSelectorQueue.get(selector);
+                                        if (callbacks) {
+                                            imageSelectorQueue.delete(selector);
+                                            imageSelectorTimeouts.delete(
+                                                selector
+                                            );
+                                            callbacks.forEach((cb) => cb());
+                                        }
+                                    }, IMAGE_SELECTOR_TIMEOUT_MS);
+                                    imageSelectorTimeouts.set(
+                                        selector,
+                                        timeoutId
+                                    );
                                 }
                             });
                         }
@@ -3984,6 +4008,13 @@
         awaitingForImageLoading.clear();
         imageSelectorQueue.clear();
         imageSelectorValues.clear();
+        imageSelectorNodeQueue.clear();
+        imageSelectorTimeouts.forEach((timeout) => clearTimeout(timeout));
+        imageSelectorTimeouts.clear();
+        if (imageSelectorQueueFrameId !== null) {
+            cancelAnimationFrame(imageSelectorQueueFrameId);
+            imageSelectorQueueFrameId = null;
+        }
         classObserver?.disconnect();
         classObserver = null;
     }
@@ -7758,6 +7789,7 @@
     const INSTANCE_ID = generateUID();
     const styleManagers = new Map();
     const adoptedStyleManagers = [];
+    const adoptedStyleNodeManagers = new WeakMap();
     const adoptedStyleFallbacks = new Map();
     const adoptedStyleChangeTokens = new WeakMap();
     let theme = null;
@@ -8187,11 +8219,20 @@
             return;
         }
         if (canHaveAdoptedStyleSheets(node)) {
+            if (adoptedStyleNodeManagers.has(node)) {
+                const existingManager = adoptedStyleNodeManagers.get(node);
+                node.adoptedStyleSheets.forEach((s) => {
+                    variablesStore.addRulesForMatching(s.cssRules);
+                });
+                existingManager.render(theme, ignoredImageAnalysisSelectors);
+                return;
+            }
             node.adoptedStyleSheets.forEach((s) => {
                 variablesStore.addRulesForMatching(s.cssRules);
             });
             const newManger = createAdoptedStyleSheetOverride(node);
             adoptedStyleManagers.push(newManger);
+            adoptedStyleNodeManagers.set(node, newManger);
             newManger.render(theme, ignoredImageAnalysisSelectors);
             newManger.watch((sheets) => {
                 sheets.forEach((s) => {

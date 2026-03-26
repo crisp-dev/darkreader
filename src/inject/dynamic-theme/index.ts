@@ -35,6 +35,7 @@ declare const __CHROMIUM_MV3__: boolean;
 const INSTANCE_ID = generateUID();
 const styleManagers = new Map<StyleElement, StyleManager>();
 const adoptedStyleManagers: AdoptedStyleSheetManager[] = [];
+const adoptedStyleNodeManagers = new WeakMap<ShadowRoot | Document, AdoptedStyleSheetManager>();
 const adoptedStyleFallbacks = new Map<CSSStyleSheet, AdoptedStyleSheetFallback>();
 const adoptedStyleChangeTokens = new WeakMap<CSSStyleSheet, symbol>();
 let theme: Theme | null = null;
@@ -443,11 +444,23 @@ function handleAdoptedStyleSheets(node: ShadowRoot | Document) {
     }
 
     if (canHaveAdoptedStyleSheets(node)) {
+        // Check if we already have a manager for this node
+        if (adoptedStyleNodeManagers.has(node)) {
+            // Re-render existing manager instead of creating a new one
+            const existingManager = adoptedStyleNodeManagers.get(node)!;
+            node.adoptedStyleSheets.forEach((s) => {
+                variablesStore.addRulesForMatching(s.cssRules);
+            });
+            existingManager.render(theme!, ignoredImageAnalysisSelectors);
+            return;
+        }
+
         node.adoptedStyleSheets.forEach((s) => {
             variablesStore.addRulesForMatching(s.cssRules);
         });
         const newManger = createAdoptedStyleSheetOverride(node);
         adoptedStyleManagers.push(newManger);
+        adoptedStyleNodeManagers.set(node, newManger);
         newManger.render(theme!, ignoredImageAnalysisSelectors);
         newManger.watch((sheets) => {
             sheets.forEach((s) => {
