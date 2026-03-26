@@ -2,7 +2,7 @@ import './chrome';
 import {DEFAULT_THEME} from '../defaults';
 import type {Theme, DynamicThemeFix} from '../definitions';
 import {ThemeEngine} from '../generators/theme-engines';
-import {createOrUpdateDynamicThemeInternal, removeDynamicTheme} from '../inject/dynamic-theme';
+import {createOrUpdateDynamicThemeInternal, removeDynamicTheme, cleanDynamicThemeCache} from '../inject/dynamic-theme';
 import {collectCSS} from '../inject/dynamic-theme/css-collection';
 import {isMatchMediaChangeEventListenerSupported} from '../utils/platform';
 
@@ -74,6 +74,10 @@ export function auto(themeOptions: Partial<Theme> | false = {}, fixes: DynamicTh
 
 export async function exportGeneratedCSS(): Promise<string> {
     return await collectCSS();
+}
+
+export function cleanup(): void {
+    cleanDynamicThemeCache();
 }
 
 export const setFetchMethod = setFetch;

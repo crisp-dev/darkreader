@@ -54,7 +54,7 @@ export function writeImageDetailsCache(url: string, imageDetails: ImageDetails):
     imageCacheTimeout = setTimeout(writeImageDetailsQueue, 1000);
 }
 
-export function readImageDetailsCache(targetMap: Map<string, ImageDetails>): void {
+export function readImageDetailsCache(targetCache: {set: (key: string, value: ImageDetails) => void}): void {
     try {
         const jsonList = sessionStorage.getItem(STORAGE_KEY_IMAGE_DETAILS_LIST);
         if (!jsonList) {
@@ -65,7 +65,7 @@ export function readImageDetailsCache(targetMap: Map<string, ImageDetails>): voi
             const json = sessionStorage.getItem(`${STORAGE_KEY_IMAGE_DETAILS_PREFIX}${url}`);
             if (json) {
                 const details = JSON.parse(json);
-                targetMap.set(url, details);
+                targetCache.set(url, details);
             }
         });
     } catch (err) {

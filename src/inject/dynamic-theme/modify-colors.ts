@@ -4,6 +4,7 @@ import {applyColorMatrix, createFilterMatrix} from '../../generators/utils/matri
 import {getRegisteredColor, registerColor} from '../../inject/dynamic-theme/palette';
 import type {RGBA, HSLA} from '../../utils/color';
 import {parseToHSLWithCache, rgbToHSL, hslToRGB, rgbToString, rgbToHexString} from '../../utils/color';
+import {LRUCache} from '../../utils/lru-cache';
 import {scale} from '../../utils/math';
 import {registerCache} from './leak-debug';
 
@@ -25,7 +26,8 @@ function getFgPole(theme: Theme) {
     return theme[prop];
 }
 
-const colorModificationCache = new Map<ColorFunction, Map<string, string>>();
+const MAX_COLOR_CACHE_PER_FN = 1000;
+const colorModificationCache = new Map<ColorFunction, LRUCache<string, string>>();
 registerCache('colorModificationCache', colorModificationCache);
 
 export function clearColorModificationCache(): void {
@@ -59,16 +61,17 @@ function getCacheId(rgb: RGBA, theme: Theme): string {
 }
 
 function modifyColorWithCache(rgb: RGBA, theme: Theme, modifyHSL: (hsl: HSLA, pole?: HSLA | null, anotherPole?: HSLA | null) => HSLA, poleColor?: string, anotherPoleColor?: string): string {
-    let fnCache: Map<string, string>;
+    let fnCache: LRUCache<string, string>;
     if (colorModificationCache.has(modifyHSL)) {
         fnCache = colorModificationCache.get(modifyHSL)!;
     } else {
-        fnCache = new Map();
+        fnCache = new LRUCache(MAX_COLOR_CACHE_PER_FN);
         colorModificationCache.set(modifyHSL, fnCache);
     }
     const id = getCacheId(rgb, theme);
-    if (fnCache.has(id)) {
-        return fnCache.get(id)!;
+    const cached = fnCache.get(id);
+    if (cached !== undefined) {
+        return cached;
     }
 
     const hsl = rgbToHSL(rgb);

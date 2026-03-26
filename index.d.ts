@@ -40,6 +40,12 @@ declare namespace DarkReader {
     function exportGeneratedCSS(): Promise<string>;
 
     /**
+     * Clears internal caches to free memory.
+     * Call this periodically in long-running apps to prevent memory leaks.
+     */
+    function cleanup(): void;
+
+    /**
      * Theme options.
      */
     interface Theme {
@@ -157,6 +163,12 @@ declare namespace DarkReader {
          * who are using the Dark Reader API.
          */
         disableStyleSheetsProxy: boolean;
+        /**
+         * A toggle to disable the proxying of `CustomElementRegistry.define`.
+         * Disabling this and disableStyleSheetsProxy avoids inline script injection
+         * which can cause CSP violations.
+         */
+        disableCustomElementRegistryProxy: boolean;
         /**
          * List of stylesheet URL patterns to ignore.
          * Stylesheets matching these patterns will not be processed by Dark Reader.

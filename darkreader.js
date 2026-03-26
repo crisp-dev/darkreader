@@ -2246,7 +2246,8 @@
     }
 
     let variablesSheet;
-    const registeredColors = new Map();
+    const MAX_REGISTERED_COLORS = 500;
+    const registeredColors = new LRUCache(MAX_REGISTERED_COLORS);
     registerCache("registeredColors", registeredColors);
     function registerVariablesSheet(sheet) {
         variablesSheet = sheet;
@@ -2330,6 +2331,7 @@
             : "lightSchemeTextColor";
         return theme[prop];
     }
+    const MAX_COLOR_CACHE_PER_FN = 1000;
     const colorModificationCache = new Map();
     registerCache("colorModificationCache", colorModificationCache);
     function clearColorModificationCache() {
@@ -2368,12 +2370,13 @@
         if (colorModificationCache.has(modifyHSL)) {
             fnCache = colorModificationCache.get(modifyHSL);
         } else {
-            fnCache = new Map();
+            fnCache = new LRUCache(MAX_COLOR_CACHE_PER_FN);
             colorModificationCache.set(modifyHSL, fnCache);
         }
         const id = getCacheId(rgb, theme);
-        if (fnCache.has(id)) {
-            return fnCache.get(id);
+        const cached = fnCache.get(id);
+        if (cached !== undefined) {
+            return cached;
         }
         const hsl = rgbToHSL(rgb);
         const pole = poleColor == null ? null : parseToHSLWithCache(poleColor);
@@ -2693,7 +2696,7 @@
         clearTimeout(imageCacheTimeout);
         imageCacheTimeout = setTimeout(writeImageDetailsQueue, 1000);
     }
-    function readImageDetailsCache(targetMap) {
+    function readImageDetailsCache(targetCache) {
         try {
             const jsonList = sessionStorage.getItem(
                 STORAGE_KEY_IMAGE_DETAILS_LIST
@@ -2708,7 +2711,7 @@
                 );
                 if (json) {
                     const details = JSON.parse(json);
-                    targetMap.set(url, details);
+                    targetCache.set(url, details);
                 }
             });
         } catch (err) {}
@@ -3530,7 +3533,8 @@
         }
         return (theme) => modifyForegroundColor(rgb, theme);
     }
-    const imageDetailsCache = new Map();
+    const IMAGE_DETAILS_CACHE_SIZE = 200;
+    const imageDetailsCache = new LRUCache(IMAGE_DETAILS_CACHE_SIZE);
     const awaitingForImageLoading = new Map();
     let didTryLoadCache = false;
     registerCache("imageDetailsCache", imageDetailsCache);
@@ -8893,9 +8897,13 @@ _______|_______/__/ ____ \\__\\__|___\\__\\__|___\\__\\____
     async function exportGeneratedCSS() {
         return await collectCSS();
     }
+    function cleanup() {
+        cleanDynamicThemeCache();
+    }
     const setFetchMethod = setFetchMethod$1;
 
     exports.auto = auto;
+    exports.cleanup = cleanup;
     exports.disable = disable;
     exports.enable = enable;
     exports.exportGeneratedCSS = exportGeneratedCSS;

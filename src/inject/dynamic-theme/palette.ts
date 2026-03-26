@@ -1,4 +1,5 @@
 import {parseColorWithCache, rgbToHexString, type RGBA} from '../../utils/color';
+import {LRUCache} from '../../utils/lru-cache';
 import {registerCache} from './leak-debug';
 
 interface RegisteredColor {
@@ -27,7 +28,8 @@ interface ColorPalette {
 
 let variablesSheet: CSSStyleSheet | null;
 
-const registeredColors = new Map<string, RegisteredColor>();
+const MAX_REGISTERED_COLORS = 500;
+const registeredColors = new LRUCache<string, RegisteredColor>(MAX_REGISTERED_COLORS);
 registerCache('registeredColors', registeredColors);
 
 export function registerVariablesSheet(sheet: CSSStyleSheet): void {

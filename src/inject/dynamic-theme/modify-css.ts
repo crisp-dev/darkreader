@@ -306,7 +306,8 @@ function getColorModifier(prop: string, value: string, rule: CSSStyleRule): stri
     return (theme) => modifyForegroundColor(rgb, theme);
 }
 
-const imageDetailsCache = new Map<string, ImageDetails>();
+const IMAGE_DETAILS_CACHE_SIZE = 200;
+const imageDetailsCache = new LRUCache<string, ImageDetails>(IMAGE_DETAILS_CACHE_SIZE);
 const awaitingForImageLoading = new Map<string, Array<(imageDetails: ImageDetails | null) => void>>();
 let didTryLoadCache = false;
 
